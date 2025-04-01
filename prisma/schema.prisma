@@ -1,20 +1,220 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
     provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "sqlite"
-    url      = env("DATABASE_URL")
+    provider  = "postgresql"
+    url       = env("DATABASE_URL")
+    directUrl = env("DIRECT_URL")
 }
 
-model Post {
-    id        Int      @id @default(autoincrement())
-    name      String
+enum EventStatus {
+    CONFIRMED
+    TENTATIVE
+    CANCELLED
+}
+
+enum EventTransparency {
+    OPAQUE // Time is busy
+    TRANSPARENT // Time is free
+}
+
+enum FrequencyType {
+    DAILY
+    WEEKLY
+    MONTHLY
+    YEARLY
+}
+
+enum WeekDay {
+    MO
+    TU
+    WE
+    TH
+    FR
+    SA
+    SU
+}
+
+enum AttendeeStatus {
+    NEEDS_ACTION
+    ACCEPTED
+    DECLINED
+    TENTATIVE
+}
+
+enum CalendarPermission {
+    OWNER
+    EDITOR
+    VIEWER
+}
+
+enum NotificationType {
+    EMAIL
+    PUSH
+    IN_APP
+}
+
+model User {
+    id                String             @id @default(cuid())
+    email             String             @unique
+    name              String?
+    timezone          String             @default("UTC") // User's default timezone
+    events            Event[]
+    categories        Category[]
+    preferences       AIPreferences?
+    notifications     Notification[]
+    externalCalendars ExternalCalendar[]
+    sharedWithMe      CalendarShare[]    @relation("SharedWithUser")
+    sharedByMe        CalendarShare[]    @relation("CalendarOwner")
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Event {
+    id            String         @id @default(cuid())
+    userId        String
+    user          User           @relation(fields: [userId], references: [id])
+    categoryId    String?
+    category      Category?      @relation(fields: [categoryId], references: [id])
+    attendees     Attendee[]
+    notifications Notification[]
+
+    title       String
+    description String?
+    startTime   DateTime
+    endTime     DateTime
+    timezone    String   @default("UTC") // Event-specific timezone
+    location    String?
+
+    // iCalendar standard fields
+    uid    String             @unique @default(cuid()) // UID for calendar interchange
+    status EventStatus? // Event status (CONFIRMED, TENTATIVE, CANCELLED)
+    transp EventTransparency? // Time transparency (OPAQUE=busy, TRANSPARENT=free)
+    url    String? // URL associated with the event
+
+    // Reminders and attachments
+    reminders   Json? // Store reminder settings as JSON
+    attachments Json? // Store attachments as JSON
+
+    // Custom properties
+    customProps Json? // For any additional properties
+
+    recurrenceRule RecurrenceRule?
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Category {
+    id     String @id @default(cuid())
+    userId String
+    user   User   @relation(fields: [userId], references: [id])
+
+    name   String
+    color  String  @default("#000000")
+    events Event[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model AIPreferences {
+    id     String @id @default(cuid())
+    userId String @unique
+    user   User   @relation(fields: [userId], references: [id])
+
+    preferredWorkHours  Json? // Store work hours preferences as JSON
+    focusTimePreference Boolean @default(true)
+    breakTimePreference Int     @default(15) // Break time in minutes
+    autoSchedule        Boolean @default(true)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model RecurrenceRule {
+    id      String @id @default(cuid())
+    eventId String @unique
+    event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+    frequency FrequencyType
+    interval  Int           @default(1) // How often the rule repeats (every X days/weeks/etc)
+
+    // Day specifications
+    byDay      String? // Comma-separated days of week (MO,TU,WE,TH,FR)
+    byMonth    String? // Comma-separated months (1,2,3...)
+    byMonthDay String? // Comma-separated days of month (1,15,-1...)
+    byYearDay  String? // Comma-separated days of year (1,100,366...)
+    byWeekNo   String? // Comma-separated week numbers (1,20,53...)
+    bySetPos   String? // Positions within a set (1,-1 for first/last)
+
+    weekStart WeekDay @default(MO) // Week start day
+
+    startDate DateTime // When the recurrence starts
+    endDate   DateTime? // Optional end date
+    count     Int? // Optional number of occurrences
+
+    exDates String? // Excluded dates in ISO format, comma-separated
+    rDates  String? // Additional dates to include, comma-separated
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Attendee {
+    id      String         @id @default(cuid())
+    email   String
+    name    String?
+    status  AttendeeStatus @default(NEEDS_ACTION)
+    eventId String
+    event   Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
-    @@index([name])
+    @@unique([email, eventId])
+}
+
+model CalendarShare {
+    id         String             @id @default(cuid())
+    userId     String // User who has access
+    user       User               @relation("SharedWithUser", fields: [userId], references: [id])
+    ownerId    String // User who owns the calendar
+    owner      User               @relation("CalendarOwner", fields: [ownerId], references: [id])
+    permission CalendarPermission
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@unique([userId, ownerId])
+}
+
+model Notification {
+    id      String           @id @default(cuid())
+    userId  String
+    user    User             @relation(fields: [userId], references: [id])
+    eventId String
+    event   Event            @relation(fields: [eventId], references: [id])
+    type    NotificationType
+    time    DateTime // When to send notification
+    sent    Boolean          @default(false)
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model ExternalCalendar {
+    id          String   @id @default(cuid())
+    userId      String
+    user        User     @relation(fields: [userId], references: [id])
+    name        String
+    type        String // "google", "apple", "outlook", etc.
+    url         String? // CalDAV URL if applicable
+    credentials Json? // Encrypted credentials/tokens
+    lastSynced  DateTime @default(now())
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 }

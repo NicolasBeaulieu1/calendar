@@ -1,0 +1,37 @@
+project_name: "Calendar App with Interoperability"
+
+assumptions:
+  - The app uses RFC 5545-compliant iCalendar data (.ics).
+  - The app supports CalDAV protocol for external calendar sync.
+  - The app internally uses jCal (RFC 7265) for JSON representation.
+  - The app stores both raw iCalendar strings and parsed fields in the database.
+  - Prisma is used for ORM and PostgreSQL is the default DB.
+  - AI suggestions should prioritize standards compliance and extensibility.
+
+goals:
+  - Ensure maximum interoperability with other calendar providers.
+  - Maintain a clean separation between protocol (CalDAV), storage (DB), and processing (jCal).
+  - Design for future extensibility (e.g., recurring rules, shared calendars, tasks).
+
+ai_behavior:
+  - Always assume jCal is the format used when referencing JSON calendar data.
+  - When providing event or calendar schemas, use a structure that includes:
+    - Parsed fields (start, end, summary, etc.)
+    - Raw iCalendar text
+    - Optional jCal or recurrence logic
+  - When generating API endpoints, assume the server supports:
+    - ICS export/import
+    - jCal export
+    - CalDAV read/write
+  - Prefer converting .ics ↔ jCal over building custom JSON formats
+  - Optimize for standards adherence (RFC 5545, 4791, 7265) over shortcuts.
+  - Use existing libraries (ical.js, ical-expander, sabre/dav, etc.) where possible.
+
+coding_guidelines:
+  - Favor clean separation of concerns: storage, transformation, protocol
+  - Always consider how recurrence and time zones are handled
+  - Include ETags or modified timestamps to support sync features
+  - Make event querying efficient (indexed date fields, proper filtering)
+
+non_goals:
+  - Do not design proprietary calendar formats unless explicitly requested
